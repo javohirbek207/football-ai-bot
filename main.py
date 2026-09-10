@@ -49,7 +49,7 @@ ai_client = None
 if GEMINI_API_KEY:
     try:
         ai_client = genai.Client(api_key=GEMINI_API_KEY.strip())
-        logging.info("✅ Gemini AI mijozi muvaffaqiyatli ulandi!")
+        logging.info("Gemini AI muvaffaqiyatli ulandi!")
     except Exception as e:
         logging.error(f"Gemini ulanishida xatolik: {e}")
 
@@ -57,9 +57,9 @@ if GEMINI_API_KEY:
 def get_main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Turnir Jadvali"), KeyboardButton(text="🎯 To'purarlar (Top-5)")],
-            [KeyboardButton(text="📅 Bugungi O'yinlar"), KeyboardButton(text="⚡️ Oxirgi O'yin Natijasi")],
-            [KeyboardButton(text="ℹ️ Bot Holati")]
+            [KeyboardButton(text="Turnir Jadvali"), KeyboardButton(text="Top-5 Topurarlar")],
+            [KeyboardButton(text="Bugungi O'yinlar"), KeyboardButton(text="Oxirgi O'yin Natijasi")],
+            [KeyboardButton(text="Bot Holati")]
         ],
         resize_keyboard=True
     )
@@ -79,7 +79,7 @@ def get_leagues_inline_kb(action_type: str):
 # ==================== STATISTIKA FUNKSIYALARI ====================
 async def fetch_standings(league_code: str) -> str:
     if not FOOTBALL_DATA_API_KEY:
-        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+        return "FOOTBALL_DATA_API_KEY topilmadi!"
     
     url = f"https://api.football-data.org/v4/competitions/{league_code}/standings"
     headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
@@ -88,18 +88,18 @@ async def fetch_standings(league_code: str) -> str:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status != 200:
-                    return f"❌ Ma'lumot olishda xatolik: status {resp.status}"
+                    return f"Ma'lumot olishda xatolik: status {resp.status}"
                 data = await resp.json()
                 
         standings = data.get("standings", [])
         if not standings:
-            return "❌ Jadval ma'lumotlari mavjud emas."
+            return "Jadval ma'lumotlari mavjud emas."
             
         table = standings[0].get("table", [])
         league_info = LEAGUES.get(league_code, {"full": "Turnir", "flag": "⚽️"})
         
         text = f"{league_info['flag']} <b>{league_info['full'].upper()}</b>\n"
-        text += f"📊 <b>Turnir jadvali (Top-6):</b>\n\n"
+        text += "<b>Turnir jadvali (Top-6):</b>\n\n"
         text += "<code>O'r  Jamoa           O'y  Farq  Och</code>\n"
         text += "<code>------------------------------------</code>\n"
         
@@ -116,11 +116,11 @@ async def fetch_standings(league_code: str) -> str:
         text += f"\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
         return text
     except Exception as e:
-        return f"❌ Xatolik yuz berdi: {e}"
+        return f"Xatolik yuz berdi: {e}"
 
 async def fetch_top_scorers(league_code: str) -> str:
     if not FOOTBALL_DATA_API_KEY:
-        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+        return "FOOTBALL_DATA_API_KEY topilmadi!"
         
     url = f"https://api.football-data.org/v4/competitions/{league_code}/scorers?limit=5"
     headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
@@ -129,15 +129,15 @@ async def fetch_top_scorers(league_code: str) -> str:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status != 200:
-                    return f"❌ To'purarlar olishda xatolik: status {resp.status}"
+                    return f"Topurarlar olishda xatolik: status {resp.status}"
                 data = await resp.json()
                 
         scorers = data.get("scorers", [])
         if not scorers:
-            return "❌ To'purarlar ro'yxati topilmadi."
+            return "Topurarlar royxati topilmadi."
             
         league_info = LEAGUES.get(league_code, {"full": "Turnir", "flag": "⚽️"})
-        text = f"🎯 <b>{league_info['flag']} {league_info['full'].upper()} TO'PURARLARI</b>\n\n"
+        text = f"{league_info['flag']} <b>{league_info['full'].upper()} TOPURARLARI</b>\n\n"
         
         for idx, sc in enumerate(scorers[:5], 1):
             player = sc.get("player", {}).get("name", "Noma'lum")
@@ -146,16 +146,16 @@ async def fetch_top_scorers(league_code: str) -> str:
             assists = sc.get("assists") or 0
             
             medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"<b>{idx}.</b>"))
-            text += f"{medal} <b>{player}</b> ({team})\n   ⚽️ Gollar: <b>{goals}</b> | 🎯 Assist: {assists}\n\n"
+            text += f"{medal} <b>{player}</b> ({team})\n   Gollar: <b>{goals}</b> | Assist: {assists}\n\n"
             
         text += f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
         return text
     except Exception as e:
-        return f"❌ Xatolik yuz berdi: {e}"
+        return f"Xatolik yuz berdi: {e}"
 
 async def fetch_today_matches() -> str:
     if not FOOTBALL_DATA_API_KEY:
-        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+        return "FOOTBALL_DATA_API_KEY topilmadi!"
         
     url = "https://api.football-data.org/v4/matches"
     headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
@@ -164,7 +164,7 @@ async def fetch_today_matches() -> str:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status != 200:
-                    return f"❌ O'yinlar jadvalida xatolik: status {resp.status}"
+                    return f"O'yinlar jadvalida xatolik: status {resp.status}"
                 data = await resp.json()
                 
         matches = data.get("matches", [])
@@ -177,7 +177,7 @@ async def fetch_today_matches() -> str:
                 top_matches.append(m)
                 
         if not top_matches:
-            return "📅 <b>Bugungi o'yinlar anonsi:</b>\n\nBugun dasturda yirik top jamoalar uchrashuvlari rejalashtirilmagan.\n\n⚽️ <b>Kanalimiz:</b> " + CHANNEL_TAG
+            return f"📅 <b>Bugungi o'yinlar anonsi:</b>\n\nBugun dasturda yirik top jamoalar uchrashuvlari rejalashtirilmagan.\n\n⚽️ <b>Kanalimiz:</b> {CHANNEL_TAG}"
             
         text = "📅 <b>BUGUNGI ASOSIY O'YINLAR (Toshkent vaqti):</b>\n\n"
         for m in top_matches[:6]:
@@ -190,21 +190,20 @@ async def fetch_today_matches() -> str:
             if utc_time:
                 try:
                     dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
-                    # UTC dan Toshkent vaqtiga (+5 soat)
                     tashkent_hour = (dt.hour + 5) % 24
                     time_str = f"{tashkent_hour:02d}:{dt.minute:02d}"
                 except Exception:
-                    time_str = "Vaqti aniq emas"
+                    time_str = "Vaqti noaniq"
                     
             status = m.get("status")
-            status_badge = "⏳ " + time_str if status in ["TIMED", "SCHEDULED"] else ("🔴 LIVE" if status == "IN_PLAY" else "✅ TUGADI")
+            status_badge = f"{time_str}" if status in ["TIMED", "SCHEDULED"] else ("LIVE" if status == "IN_PLAY" else "TUGADI")
             
-            text += f"🏆 <b>{comp}</b>\n⚔️ <b>{home} — {away}</b>\n⏰ {status_badge}\n\n"
+            text += f"🏆 <b>{comp}</b>\n⚔️ <b>{home} - {away}</b>\n⏰ Holat: {status_badge}\n\n"
             
         text += f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
         return text
     except Exception as e:
-        return f"❌ Xatolik: {e}"
+        return f"Xatolik: {e}"
 
 # ==================== AI CAPTION VA O'YIN KUZATUVI ====================
 async def generate_match_caption(home_team: str, away_team: str, home_score: int, away_score: int, competition: str, winner_team: str) -> str:
@@ -247,7 +246,7 @@ async def generate_match_caption(home_team: str, away_team: str, home_score: int
 
 async def check_finished_matches(force_post_one: bool = False):
     if not FOOTBALL_DATA_API_KEY:
-        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+        return "FOOTBALL_DATA_API_KEY topilmadi!"
         
     url = "https://api.football-data.org/v4/matches"
     headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
@@ -286,7 +285,7 @@ async def check_finished_matches(force_post_one: bool = False):
                     except Exception:
                         await bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode="HTML")
                         
-                    return f"✅ O'yin kanalga chiqarildi: {home} vs {away}"
+                    return f"O'yin kanalga chiqarildi: {home} vs {away}"
         return "Hozircha yangi tugagan o'yin topilmadi."
     except Exception as e:
         return f"Xatolik: {e}"
@@ -295,67 +294,67 @@ async def check_finished_matches(force_post_one: bool = False):
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     await message.answer(
-        f"👋 Salom, <b>{message.from_user.first_name}</b>!\n\n"
-        f"📢 Kanal: {CHANNEL_TAG}\n"
-        f"Ushbu panel orqali kanalga futbol jadvallari, to'purarlar ro'yxati va o'yinlar hisobotini yuborishingiz mumkin:",
+        f"Salom, <b>{message.from_user.first_name}</b>!\n\n"
+        f"Kanal: {CHANNEL_TAG}\n"
+        "Quyidagi tugmalar orqali kanalga statistika va natijalarni chiqarishingiz mumkin:",
         reply_markup=get_main_menu(),
         parse_mode="HTML"
     )
 
-@dp.message(F.text == "📊 Turnir Jadvali")
+@dp.message(F.text == "Turnir Jadvali")
 async def standings_choice(message: types.Message):
     await message.answer("Qaysi liganing turnir jadvalini chiqarmoqchisiz?", reply_markup=get_leagues_inline_kb("std"))
 
-@dp.message(F.text == "🎯 To'purarlar (Top-5)")
+@dp.message(F.text == "Top-5 Topurarlar")
 async def scorers_choice(message: types.Message):
-    await message.answer("Qaysi liganing to'purarlarini ko'rmoqchisiz?", reply_markup=get_leagues_inline_kb("scr"))
+    await message.answer("Qaysi liganing topurarlarini kormoqchisiz?", reply_markup=get_leagues_inline_kb("scr"))
 
 @dp.callback_query(F.data.startswith("std_"))
 async def post_standings_callback(call: types.CallbackQuery):
     code = call.data.split("_")[1]
-    wait_msg = await call.message.edit_text("⏳ Turnir jadvali tayyorlanmoqda...")
+    wait_msg = await call.message.edit_text("Turnir jadvali tayyorlanmoqda...")
     text = await fetch_standings(code)
     try:
         await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
-        await wait_msg.edit_text(f"✅ Jadval kanalga joylandi!\n\n{text}", parse_mode="HTML")
+        await wait_msg.edit_text(f"Jadval kanalga joylandi!\n\n{text}", parse_mode="HTML")
     except Exception as e:
-        await wait_msg.edit_text(f"❌ Kanalga yuborishda xatolik: {e}")
+        await wait_msg.edit_text(f"Kanalga yuborishda xatolik: {e}")
 
 @dp.callback_query(F.data.startswith("scr_"))
 async def post_scorers_callback(call: types.CallbackQuery):
     code = call.data.split("_")[1]
-    wait_msg = await call.message.edit_text("⏳ To'purarlar ma'lumoti olinmoqda...")
+    wait_msg = await call.message.edit_text("Topurarlar malumoti olinmoqda...")
     text = await fetch_top_scorers(code)
     try:
         await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
-        await wait_msg.edit_text(f"✅ To'purarlar kanalga joylandi!\n\n{text}", parse_mode="HTML")
+        await wait_msg.edit_text(f"Topurarlar kanalga joylandi!\n\n{text}", parse_mode="HTML")
     except Exception as e:
-        await wait_msg.edit_text(f"❌ Kanalga yuborishda xatolik: {e}")
+        await wait_msg.edit_text(f"Kanalga yuborishda xatolik: {e}")
 
-@dp.message(F.text == "📅 Bugungi O'yinlar")
+@dp.message(F.text == "Bugungi O'yinlar")
 async def today_matches_handler(message: types.Message):
-    wait_msg = await message.answer("⏳ Bugungi o'yinlar jadvali olinmoqda...")
+    wait_msg = await message.answer("Bugungi oyinlar jadvali olinmoqda...")
     text = await fetch_today_matches()
     try:
         await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
-        await wait_msg.edit_text(f"✅ Kanalga chiqarildi!\n\n{text}", parse_mode="HTML")
+        await wait_msg.edit_text(f"Kanalga chiqarildi!\n\n{text}", parse_mode="HTML")
     except Exception as e:
-        await wait_msg.edit_text(f"❌ Xatolik: {e}")
+        await wait_msg.edit_text(f"Xatolik: {e}")
 
-@dp.message(F.text == "⚡️ Oxirgi O'yin Natijasi")
+@dp.message(F.text == "Oxirgi O'yin Natijasi")
 async def force_match_handler(message: types.Message):
-    wait_msg = await message.answer("⏳ Oxirgi o'yin qidirilmoqda va AI tahlil tayyorlanmoqda...")
+    wait_msg = await message.answer("Oxirgi oyin qidirilmoqda va AI tahlil tayyorlanmoqda...")
     res = await check_finished_matches(force_post_one=True)
     await wait_msg.edit_text(res)
 
-@dp.message(F.text == "ℹ️ Bot Holati")
+@dp.message(F.text == "Bot Holati")
 async def status_handler(message: types.Message):
     await message.answer(
-        f"📊 <b>Bot Statistikasi:</b>\n\n"
-        f"📢 Kanal: {CHANNEL_TAG}\n"
-        f"🤖 AI Modul: {'Ulangan ✅' if ai_client else 'Ulanmagan ❌'}\n"
-        f"⚽️ Football-Data API: {'Faol ✅' if FOOTBALL_DATA_API_KEY else 'Kiritilmagan ❌'}\n"
-        f"⏰ Har 5 daqiqada tugagan yirik o'yinlarni avtomat tekshiradi.",
+        f"<b>Bot Statistikasi:</b>\n\n"
+        f"Kanal: {CHANNEL_TAG}\n"
+        f"AI Modul: {'Ulangan' if ai_client else 'Ulanmagan'}\n"
+        f"Football-Data API: {'Faol' if FOOTBALL_DATA_API_KEY else 'Kiritilmagan'}\n"
+        "Har 5 daqiqada tugagan yirik oyinlarni avtomat tekshiradi.",
         parse_mode="HTML"
     )
 
@@ -379,7 +378,6 @@ async def main():
     await start_web_server()
     
     scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
-    # Har 5 daqiqada o'yinlar tugashini tekshiradi
     scheduler.add_job(auto_schedule_routine, "interval", minutes=5)
     scheduler.start()
 
