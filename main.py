@@ -2,9 +2,14 @@ import os
 import asyncio
 import logging
 import aiohttp
+from datetime import datetime
 from aiohttp import web
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
+from aiogram.types import (
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from google import genai
 
@@ -25,14 +30,21 @@ TOP_TEAMS = [
     "Dortmund", "Juventus", "Inter", "Milan", "PSG", "Bayer Leverkusen"
 ]
 
-# Sifatli zaxira futbol rasmi (Telegram 100% qabul qiladi)
+LEAGUES = {
+    "PL": {"name": "APL", "full": "Angliya Premyer-ligasi", "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    "PD": {"name": "La Liga", "full": "Ispaniya La Ligasi", "flag": "🇪🇸"},
+    "SA": {"name": "A Seriya", "full": "Italiya A Seriyasi", "flag": "🇮🇹"},
+    "BL1": {"name": "Bundesliga", "full": "Germaniya Bundesligasi", "flag": "🇩🇪"},
+    "CL": {"name": "YeChL", "full": "Chempionlar Ligasi", "flag": "🏆"}
+}
+
 DEFAULT_MATCH_IMAGE = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=1200&auto=format&fit=crop&q=80"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 
-# ==================== GEMINI AI (YANGI SDK) ====================
+# ==================== GEMINI AI ====================
 ai_client = None
 if GEMINI_API_KEY:
     try:
@@ -40,43 +52,185 @@ if GEMINI_API_KEY:
         logging.info("✅ Gemini AI mijozi muvaffaqiyatli ulandi!")
     except Exception as e:
         logging.error(f"Gemini ulanishida xatolik: {e}")
-else:
-    logging.warning("⚠️ GEMINI_API_KEY topilmadi!")
 
-# ==================== AI POST MATNI (CAPTION) ====================
+# ==================== TUGMALAR MENYUSI ====================
+def get_main_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📊 Turnir Jadvali"), KeyboardButton(text="🎯 To'purarlar (Top-5)")],
+            [KeyboardButton(text="📅 Bugungi O'yinlar"), KeyboardButton(text="⚡️ Oxirgi O'yin Natijasi")],
+            [KeyboardButton(text="ℹ️ Bot Holati")]
+        ],
+        resize_keyboard=True
+    )
+
+def get_leagues_inline_kb(action_type: str):
+    buttons = []
+    row = []
+    for code, data in LEAGUES.items():
+        row.append(InlineKeyboardButton(text=f"{data['flag']} {data['name']}", callback_data=f"{action_type}_{code}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# ==================== STATISTIKA FUNKSIYALARI ====================
+async def fetch_standings(league_code: str) -> str:
+    if not FOOTBALL_DATA_API_KEY:
+        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+    
+    url = f"https://api.football-data.org/v4/competitions/{league_code}/standings"
+    headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return f"❌ Ma'lumot olishda xatolik: status {resp.status}"
+                data = await resp.json()
+                
+        standings = data.get("standings", [])
+        if not standings:
+            return "❌ Jadval ma'lumotlari mavjud emas."
+            
+        table = standings[0].get("table", [])
+        league_info = LEAGUES.get(league_code, {"full": "Turnir", "flag": "⚽️"})
+        
+        text = f"{league_info['flag']} <b>{league_info['full'].upper()}</b>\n"
+        text += f"📊 <b>Turnir jadvali (Top-6):</b>\n\n"
+        text += "<code>O'r  Jamoa           O'y  Farq  Och</code>\n"
+        text += "<code>------------------------------------</code>\n"
+        
+        for item in table[:6]:
+            pos = item.get("position")
+            team = item.get("team", {}).get("shortName", item.get("team", {}).get("name", ""))[:14]
+            played = item.get("playedGames")
+            diff = item.get("goalDifference")
+            points = item.get("points")
+            diff_str = f"+{diff}" if diff > 0 else str(diff)
+            
+            text += f"<b>{pos:<2}</b> {team:<15} {played:<4} {diff_str:<5} <b>{points}</b>\n"
+            
+        text += f"\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        return text
+    except Exception as e:
+        return f"❌ Xatolik yuz berdi: {e}"
+
+async def fetch_top_scorers(league_code: str) -> str:
+    if not FOOTBALL_DATA_API_KEY:
+        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+        
+    url = f"https://api.football-data.org/v4/competitions/{league_code}/scorers?limit=5"
+    headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return f"❌ To'purarlar olishda xatolik: status {resp.status}"
+                data = await resp.json()
+                
+        scorers = data.get("scorers", [])
+        if not scorers:
+            return "❌ To'purarlar ro'yxati topilmadi."
+            
+        league_info = LEAGUES.get(league_code, {"full": "Turnir", "flag": "⚽️"})
+        text = f"🎯 <b>{league_info['flag']} {league_info['full'].upper()} TO'PURARLARI</b>\n\n"
+        
+        for idx, sc in enumerate(scorers[:5], 1):
+            player = sc.get("player", {}).get("name", "Noma'lum")
+            team = sc.get("team", {}).get("shortName", sc.get("team", {}).get("name", ""))
+            goals = sc.get("goals", 0)
+            assists = sc.get("assists") or 0
+            
+            medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"<b>{idx}.</b>"))
+            text += f"{medal} <b>{player}</b> ({team})\n   ⚽️ Gollar: <b>{goals}</b> | 🎯 Assist: {assists}\n\n"
+            
+        text += f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        return text
+    except Exception as e:
+        return f"❌ Xatolik yuz berdi: {e}"
+
+async def fetch_today_matches() -> str:
+    if not FOOTBALL_DATA_API_KEY:
+        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+        
+    url = "https://api.football-data.org/v4/matches"
+    headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return f"❌ O'yinlar jadvalida xatolik: status {resp.status}"
+                data = await resp.json()
+                
+        matches = data.get("matches", [])
+        top_matches = []
+        
+        for m in matches:
+            home = m.get("homeTeam", {}).get("name", "")
+            away = m.get("awayTeam", {}).get("name", "")
+            if any(t.lower() in home.lower() or t.lower() in away.lower() for t in TOP_TEAMS):
+                top_matches.append(m)
+                
+        if not top_matches:
+            return "📅 <b>Bugungi o'yinlar anonsi:</b>\n\nBugun dasturda yirik top jamoalar uchrashuvlari rejalashtirilmagan.\n\n⚽️ <b>Kanalimiz:</b> " + CHANNEL_TAG
+            
+        text = "📅 <b>BUGUNGI ASOSIY O'YINLAR (Toshkent vaqti):</b>\n\n"
+        for m in top_matches[:6]:
+            home = m.get("homeTeam", {}).get("shortName", m.get("homeTeam", {}).get("name", ""))
+            away = m.get("awayTeam", {}).get("shortName", m.get("awayTeam", {}).get("name", ""))
+            comp = m.get("competition", {}).get("name", "Futbol")
+            utc_time = m.get("utcDate", "")
+            
+            time_str = ""
+            if utc_time:
+                try:
+                    dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
+                    # UTC dan Toshkent vaqtiga (+5 soat)
+                    tashkent_hour = (dt.hour + 5) % 24
+                    time_str = f"{tashkent_hour:02d}:{dt.minute:02d}"
+                except Exception:
+                    time_str = "Vaqti aniq emas"
+                    
+            status = m.get("status")
+            status_badge = "⏳ " + time_str if status in ["TIMED", "SCHEDULED"] else ("🔴 LIVE" if status == "IN_PLAY" else "✅ TUGADI")
+            
+            text += f"🏆 <b>{comp}</b>\n⚔️ <b>{home} — {away}</b>\n⏰ {status_badge}\n\n"
+            
+        text += f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        return text
+    except Exception as e:
+        return f"❌ Xatolik: {e}"
+
+# ==================== AI CAPTION VA O'YIN KUZATUVI ====================
 async def generate_match_caption(home_team: str, away_team: str, home_score: int, away_score: int, competition: str, winner_team: str) -> str:
-    if winner_team == "DURANG":
-        result_header = "🤝 <b>DURANG! KUCHLAR TENG KELDI!</b>"
-    else:
-        result_header = f"🏆 <b>G'OLIB: «{winner_team.upper()}»!</b>"
-
+    header = "🤝 <b>DURANG! KUCHLAR TENG KELDI!</b>" if winner_team == "DURANG" else f"🏆 <b>G'OLIB: «{winner_team.upper()}»!</b>"
     fallback = (
         f"⚡️ <b>O'YIN YAKUNLANDI!</b>\n\n"
         f"🏆 <b>Musobaqa:</b> {competition}\n"
         f"⚔️ <b>{home_team} {home_score} : {away_score} {away_team}</b>\n"
-        f"{result_header}\n\n"
+        f"{header}\n\n"
         f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
     )
-
     if not ai_client:
         return fallback
 
     prompt = f"""
     Sen professional futbol sharhlovchisisan.
-    Hozirgina yakunlangan o'yin uchun Telegram foto-posti uchun qisqa matn tayyorla:
-    
+    Hozirgina yakunlangan o'yin uchun Telegram postiga matn yoz:
     Musobaqa: {competition}
     O'yin: {home_team} ({home_score}) vs ({away_score}) {away_team}
     G'olib: {winner_team}
     
-    TALABLAR:
-    1. Agar g'olib bo'lsa: "🏆 G'OLIB: «{winner_team.upper()}»!" deb sarlavha qo'y.
-    2. Agar durang bo'lsa: "🤝 SHIDDATLI DURANG!" deb boshla.
-    3. G'olib jamoaning o'yini, kim ajralib turgani va holatiga 2-3 jumlada qizg'in baho ber.
-    4. Muxlislarga bitta qiziqarli savol qoldir.
-    5. Faqat Telegram HTML teglari (<b>, <i>) ishlatilsin. Matn 600 ta belgidan oshmasin!
-    6. Begona kanal, havola yoki bot nomlarini mutlaqo kiritma!
-    7. Faqat sof o'zbek tilida yoz.
+    1. Sarlavhani jozibali emojilar bilan yoz.
+    2. G'olib jamoaning o'yiniga, kim qahramon bo'lganiga 2-3 jumlada hissiyotli baho ber.
+    3. Muxlislarga bitta qiziqarli savol qoldir.
+    4. Faqat Telegram HTML teglari (<b>, <i>) ishlatilsin. 600 ta belgidan oshmasin.
+    5. Begona havola yoki kanal yozma. Sof o'zbek tilida yoz.
     """
     try:
         response = await asyncio.to_thread(
@@ -86,109 +240,128 @@ async def generate_match_caption(home_team: str, away_team: str, home_score: int
         )
         clean_text = response.text.strip()
         lines = [l for l in clean_text.split("\n") if "t.me/" not in l and "http" not in l and "@" not in l]
-        post_body = "\n".join(lines).strip()
-        
-        full_text = f"{post_body}\n\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
-        
-        if len(full_text) > 1000:
-            full_text = full_text[:950] + f"...\n\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
-            
-        return full_text
-    except Exception as e:
-        logging.error(f"Gemini xatosi: {e}")
+        full_text = f"{chr(10).join(lines).strip()}\n\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        return full_text[:950] + f"...\n\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}" if len(full_text) > 1000 else full_text
+    except Exception:
         return fallback
 
-# ==================== O'YINLARNI TEKSHIRISH VA YUBORISH ====================
-async def check_finished_matches(is_first_run: bool = False):
+async def check_finished_matches(force_post_one: bool = False):
     if not FOOTBALL_DATA_API_KEY:
-        logging.warning("FOOTBALL_DATA_API_KEY o'rnatilmagan!")
-        return
-
-    headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
+        return "⚠️ FOOTBALL_DATA_API_KEY topilmadi!"
+        
     url = "https://api.football-data.org/v4/matches"
-
+    headers = {"X-Auth-Token": FOOTBALL_DATA_API_KEY.strip()}
+    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status != 200:
-                    logging.warning(f"Matches API status kodi: {resp.status}")
-                    return
+                    return f"API Status: {resp.status}"
                 data = await resp.json()
-
+                
         for m in data.get("matches", []):
             match_id = m.get("id")
             status = m.get("status")
-
-            if status == "FINISHED" and match_id not in POSTED_MATCH_IDS:
-                home_team = m.get("homeTeam", {}).get("name", "")
-                away_team = m.get("awayTeam", {}).get("name", "")
-                competition = m.get("competition", {}).get("name", "Futbol")
-
-                is_top = any(t.lower() in home_team.lower() or t.lower() in away_team.lower() for t in TOP_TEAMS)
+            
+            if status == "FINISHED" and (match_id not in POSTED_MATCH_IDS or force_post_one):
+                home = m.get("homeTeam", {}).get("name", "")
+                away = m.get("awayTeam", {}).get("name", "")
+                comp = m.get("competition", {}).get("name", "Futbol")
                 
-                if is_top:
+                is_top = any(t.lower() in home.lower() or t.lower() in away.lower() for t in TOP_TEAMS)
+                if is_top or force_post_one:
                     POSTED_MATCH_IDS.add(match_id)
-
-                    if is_first_run:
-                        continue
-
                     score = m.get("score", {}).get("fullTime", {})
-                    h_score = score.get("home", 0)
-                    a_score = score.get("away", 0)
-
-                    home_crest = m.get("homeTeam", {}).get("crest", "")
-                    away_crest = m.get("awayTeam", {}).get("crest", "")
-
-                    if h_score > a_score:
-                        winner = home_team
-                        winner_image = home_crest
-                    elif a_score > h_score:
-                        winner = away_team
-                        winner_image = away_crest
-                    else:
-                        winner = "DURANG"
-                        winner_image = home_crest
-
-                    # Telegram .svg faylni qabul qilmaydi, PNG/JPG kerak
-                    if not winner_image or str(winner_image).endswith(".svg"):
-                        winner_image = DEFAULT_MATCH_IMAGE
-
-                    caption = await generate_match_caption(
-                        home_team=home_team,
-                        away_team=away_team,
-                        home_score=h_score,
-                        away_score=a_score,
-                        competition=competition,
-                        winner_team=winner
-                    )
-
+                    h_sc = score.get("home", 0)
+                    a_sc = score.get("away", 0)
+                    
+                    winner = home if h_sc > a_sc else (away if a_sc > h_sc else "DURANG")
+                    img = m.get("homeTeam", {}).get("crest", "") if winner in [home, "DURANG"] else m.get("awayTeam", {}).get("crest", "")
+                    if not img or str(img).endswith(".svg"):
+                        img = DEFAULT_MATCH_IMAGE
+                        
+                    caption = await generate_match_caption(home, away, h_sc, a_sc, comp, winner)
                     try:
-                        await bot.send_photo(
-                            chat_id=CHANNEL_ID,
-                            photo=winner_image,
-                            caption=caption,
-                            parse_mode="HTML"
-                        )
-                        logging.info(f"✅ G'olib ({winner}) surati bilan post joylandi!")
-                    except Exception as img_err:
-                        logging.error(f"Rasm bilan yuborishda xatolik ({img_err}), matn yuborilmoqda...")
+                        await bot.send_photo(chat_id=CHANNEL_ID, photo=img, caption=caption, parse_mode="HTML")
+                    except Exception:
                         await bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode="HTML")
-
-                    await asyncio.sleep(4)
+                        
+                    return f"✅ O'yin kanalga chiqarildi: {home} vs {away}"
+        return "Hozircha yangi tugagan o'yin topilmadi."
     except Exception as e:
-        logging.error(f"O'yinlarni tekshirishda xatolik: {e}")
+        return f"Xatolik: {e}"
 
-async def scheduled_match_check():
-    await check_finished_matches(is_first_run=False)
-
-# ==================== BUYRUQLAR ====================
+# ==================== HANDLERLAR ====================
 @dp.message(CommandStart())
-async def start_cmd(message: types.Message):
-    await message.answer(f"👋 Salom! Men {CHANNEL_TAG} kanali uchun o'yin natijalarini kuzatuvchi botman.")
+async def start_handler(message: types.Message):
+    await message.answer(
+        f"👋 Salom, <b>{message.from_user.first_name}</b>!\n\n"
+        f"📢 Kanal: {CHANNEL_TAG}\n"
+        f"Ushbu panel orqali kanalga futbol jadvallari, to'purarlar ro'yxati va o'yinlar hisobotini yuborishingiz mumkin:",
+        reply_markup=get_main_menu(),
+        parse_mode="HTML"
+    )
 
-# ==================== RENDER WEB SERVER ====================
+@dp.message(F.text == "📊 Turnir Jadvali")
+async def standings_choice(message: types.Message):
+    await message.answer("Qaysi liganing turnir jadvalini chiqarmoqchisiz?", reply_markup=get_leagues_inline_kb("std"))
+
+@dp.message(F.text == "🎯 To'purarlar (Top-5)")
+async def scorers_choice(message: types.Message):
+    await message.answer("Qaysi liganing to'purarlarini ko'rmoqchisiz?", reply_markup=get_leagues_inline_kb("scr"))
+
+@dp.callback_query(F.data.startswith("std_"))
+async def post_standings_callback(call: types.CallbackQuery):
+    code = call.data.split("_")[1]
+    wait_msg = await call.message.edit_text("⏳ Turnir jadvali tayyorlanmoqda...")
+    text = await fetch_standings(code)
+    try:
+        await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
+        await wait_msg.edit_text(f"✅ Jadval kanalga joylandi!\n\n{text}", parse_mode="HTML")
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Kanalga yuborishda xatolik: {e}")
+
+@dp.callback_query(F.data.startswith("scr_"))
+async def post_scorers_callback(call: types.CallbackQuery):
+    code = call.data.split("_")[1]
+    wait_msg = await call.message.edit_text("⏳ To'purarlar ma'lumoti olinmoqda...")
+    text = await fetch_top_scorers(code)
+    try:
+        await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
+        await wait_msg.edit_text(f"✅ To'purarlar kanalga joylandi!\n\n{text}", parse_mode="HTML")
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Kanalga yuborishda xatolik: {e}")
+
+@dp.message(F.text == "📅 Bugungi O'yinlar")
+async def today_matches_handler(message: types.Message):
+    wait_msg = await message.answer("⏳ Bugungi o'yinlar jadvali olinmoqda...")
+    text = await fetch_today_matches()
+    try:
+        await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
+        await wait_msg.edit_text(f"✅ Kanalga chiqarildi!\n\n{text}", parse_mode="HTML")
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Xatolik: {e}")
+
+@dp.message(F.text == "⚡️ Oxirgi O'yin Natijasi")
+async def force_match_handler(message: types.Message):
+    wait_msg = await message.answer("⏳ Oxirgi o'yin qidirilmoqda va AI tahlil tayyorlanmoqda...")
+    res = await check_finished_matches(force_post_one=True)
+    await wait_msg.edit_text(res)
+
+@dp.message(F.text == "ℹ️ Bot Holati")
+async def status_handler(message: types.Message):
+    await message.answer(
+        f"📊 <b>Bot Statistikasi:</b>\n\n"
+        f"📢 Kanal: {CHANNEL_TAG}\n"
+        f"🤖 AI Modul: {'Ulangan ✅' if ai_client else 'Ulanmagan ❌'}\n"
+        f"⚽️ Football-Data API: {'Faol ✅' if FOOTBALL_DATA_API_KEY else 'Kiritilmagan ❌'}\n"
+        f"⏰ Har 5 daqiqada tugagan yirik o'yinlarni avtomat tekshiradi.",
+        parse_mode="HTML"
+    )
+
+# ==================== RENDER VA ISHGA TUSHIRISH ====================
 async def health_check(request):
-    return web.Response(text="Football Bot is Running 24/7!", status=200)
+    return web.Response(text="Football Stats & Match Bot is Running!", status=200)
 
 async def start_web_server():
     app = web.Application()
@@ -198,20 +371,19 @@ async def start_web_server():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-# ==================== ASOSIY FUNKSIYA ====================
+async def auto_schedule_routine():
+    await check_finished_matches(force_post_one=False)
+
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await start_web_server()
-
-    # 1. Eski o'yinlarni xotiraga olish
-    await check_finished_matches(is_first_run=True)
-
-    # 2. Har 5 daqiqada yangi o'yinlarni tekshirish
+    
     scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
-    scheduler.add_job(scheduled_match_check, "interval", minutes=5)
+    # Har 5 daqiqada o'yinlar tugashini tekshiradi
+    scheduler.add_job(auto_schedule_routine, "interval", minutes=5)
     scheduler.start()
 
-    logging.info("Bot to'liq sozlandi va ishga tushdi...")
+    logging.info("Futbol statistika va yangiliklar boti ishga tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
