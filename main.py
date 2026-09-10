@@ -23,7 +23,6 @@ PORT = int(os.getenv("PORT", 10000))
 CHANNEL_TAG = "@Jahon_Chempiyati"
 POSTED_MATCH_IDS = set()
 
-# Mashhur TOP klublar
 TOP_TEAMS = [
     "Real Madrid", "Barcelona", "Atletico", "Manchester City", "Liverpool",
     "Arsenal", "Manchester United", "Chelsea", "Tottenham", "Bayern",
@@ -31,11 +30,11 @@ TOP_TEAMS = [
 ]
 
 LEAGUES = {
-    "PL": {"name": "APL", "full": "Angliya Premyer-ligasi", "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    "PD": {"name": "La Liga", "full": "Ispaniya La Ligasi", "flag": "🇪🇸"},
-    "SA": {"name": "A Seriya", "full": "Italiya A Seriyasi", "flag": "🇮🇹"},
-    "BL1": {"name": "Bundesliga", "full": "Germaniya Bundesligasi", "flag": "🇩🇪"},
-    "CL": {"name": "YeChL", "full": "Chempionlar Ligasi", "flag": "🏆"}
+    "PL": {"name": "APL", "full": "Angliya Premyer-ligasi"},
+    "PD": {"name": "La Liga", "full": "Ispaniya La Ligasi"},
+    "SA": {"name": "A Seriya", "full": "Italiya A Seriyasi"},
+    "BL1": {"name": "Bundesliga", "full": "Germaniya Bundesligasi"},
+    "CL": {"name": "YeChL", "full": "Chempionlar Ligasi"}
 }
 
 DEFAULT_MATCH_IMAGE = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=1200&auto=format&fit=crop&q=80"
@@ -53,7 +52,7 @@ if GEMINI_API_KEY:
     except Exception as e:
         logging.error(f"Gemini ulanishida xatolik: {e}")
 
-# ==================== TUGMALAR MENYUSI ====================
+# ==================== TUGMALAR ====================
 def get_main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -68,7 +67,7 @@ def get_leagues_inline_kb(action_type: str):
     buttons = []
     row = []
     for code, data in LEAGUES.items():
-        row.append(InlineKeyboardButton(text=f"{data['flag']} {data['name']}", callback_data=f"{action_type}_{code}"))
+        row.append(InlineKeyboardButton(text=f"[ {data['name']} ]", callback_data=f"{action_type}_{code}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
@@ -76,7 +75,7 @@ def get_leagues_inline_kb(action_type: str):
         buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# ==================== STATISTIKA FUNKSIYALARI ====================
+# ==================== STATISTIKA ====================
 async def fetch_standings(league_code: str) -> str:
     if not FOOTBALL_DATA_API_KEY:
         return "FOOTBALL_DATA_API_KEY topilmadi!"
@@ -96,9 +95,9 @@ async def fetch_standings(league_code: str) -> str:
             return "Jadval ma'lumotlari mavjud emas."
             
         table = standings[0].get("table", [])
-        league_info = LEAGUES.get(league_code, {"full": "Turnir", "flag": "⚽️"})
+        league_info = LEAGUES.get(league_code, {"full": "Turnir"})
         
-        text = f"{league_info['flag']} <b>{league_info['full'].upper()}</b>\n"
+        text = f"<b>{league_info['full'].upper()}</b>\n"
         text += "<b>Turnir jadvali (Top-6):</b>\n\n"
         text += "<code>O'r  Jamoa           O'y  Farq  Och</code>\n"
         text += "<code>------------------------------------</code>\n"
@@ -113,7 +112,7 @@ async def fetch_standings(league_code: str) -> str:
             
             text += f"<b>{pos:<2}</b> {team:<15} {played:<4} {diff_str:<5} <b>{points}</b>\n"
             
-        text += f"\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        text += f"\n<b>Bizning kanal:</b> {CHANNEL_TAG}"
         return text
     except Exception as e:
         return f"Xatolik yuz berdi: {e}"
@@ -136,19 +135,17 @@ async def fetch_top_scorers(league_code: str) -> str:
         if not scorers:
             return "Topurarlar royxati topilmadi."
             
-        league_info = LEAGUES.get(league_code, {"full": "Turnir", "flag": "⚽️"})
-        text = f"{league_info['flag']} <b>{league_info['full'].upper()} TOPURARLARI</b>\n\n"
+        league_info = LEAGUES.get(league_code, {"full": "Turnir"})
+        text = f"<b>{league_info['full'].upper()} TOPURARLARI</b>\n\n"
         
         for idx, sc in enumerate(scorers[:5], 1):
             player = sc.get("player", {}).get("name", "Noma'lum")
             team = sc.get("team", {}).get("shortName", sc.get("team", {}).get("name", ""))
             goals = sc.get("goals", 0)
             assists = sc.get("assists") or 0
+            text += f"<b>{idx}. {player}</b> ({team})\n   Gollar: <b>{goals}</b> | Assist: {assists}\n\n"
             
-            medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"<b>{idx}.</b>"))
-            text += f"{medal} <b>{player}</b> ({team})\n   Gollar: <b>{goals}</b> | Assist: {assists}\n\n"
-            
-        text += f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        text += f"<b>Bizning kanal:</b> {CHANNEL_TAG}"
         return text
     except Exception as e:
         return f"Xatolik yuz berdi: {e}"
@@ -177,9 +174,9 @@ async def fetch_today_matches() -> str:
                 top_matches.append(m)
                 
         if not top_matches:
-            return f"📅 <b>Bugungi o'yinlar anonsi:</b>\n\nBugun dasturda yirik top jamoalar uchrashuvlari rejalashtirilmagan.\n\n⚽️ <b>Kanalimiz:</b> {CHANNEL_TAG}"
+            return f"<b>Bugungi o'yinlar anonsi:</b>\n\nBugun dasturda yirik top jamoalar uchrashuvlari rejalashtirilmagan.\n\n<b>Kanalimiz:</b> {CHANNEL_TAG}"
             
-        text = "📅 <b>BUGUNGI ASOSIY O'YINLAR (Toshkent vaqti):</b>\n\n"
+        text = "<b>BUGUNGI ASOSIY O'YINLAR (Toshkent vaqti):</b>\n\n"
         for m in top_matches[:6]:
             home = m.get("homeTeam", {}).get("shortName", m.get("homeTeam", {}).get("name", ""))
             away = m.get("awayTeam", {}).get("shortName", m.get("awayTeam", {}).get("name", ""))
@@ -198,22 +195,22 @@ async def fetch_today_matches() -> str:
             status = m.get("status")
             status_badge = f"{time_str}" if status in ["TIMED", "SCHEDULED"] else ("LIVE" if status == "IN_PLAY" else "TUGADI")
             
-            text += f"🏆 <b>{comp}</b>\n⚔️ <b>{home} - {away}</b>\n⏰ Holat: {status_badge}\n\n"
+            text += f"<b>{comp}</b>\n{home} - {away}\nHolat: {status_badge}\n\n"
             
-        text += f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        text += f"<b>Bizning kanal:</b> {CHANNEL_TAG}"
         return text
     except Exception as e:
         return f"Xatolik: {e}"
 
-# ==================== AI CAPTION VA O'YIN KUZATUVI ====================
+# ==================== AI CAPTION ====================
 async def generate_match_caption(home_team: str, away_team: str, home_score: int, away_score: int, competition: str, winner_team: str) -> str:
-    header = "🤝 <b>DURANG! KUCHLAR TENG KELDI!</b>" if winner_team == "DURANG" else f"🏆 <b>G'OLIB: «{winner_team.upper()}»!</b>"
+    header = "<b>DURANG! KUCHLAR TENG KELDI!</b>" if winner_team == "DURANG" else f"<b>G'OLIB: «{winner_team.upper()}»!</b>"
     fallback = (
-        f"⚡️ <b>O'YIN YAKUNLANDI!</b>\n\n"
-        f"🏆 <b>Musobaqa:</b> {competition}\n"
-        f"⚔️ <b>{home_team} {home_score} : {away_score} {away_team}</b>\n"
+        "<b>O'YIN YAKUNLANDI!</b>\n\n"
+        f"<b>Musobaqa:</b> {competition}\n"
+        f"<b>{home_team} {home_score} : {away_score} {away_team}</b>\n"
         f"{header}\n\n"
-        f"⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
+        f"<b>Bizning kanal:</b> {CHANNEL_TAG}"
     )
     if not ai_client:
         return fallback
@@ -225,8 +222,8 @@ async def generate_match_caption(home_team: str, away_team: str, home_score: int
     O'yin: {home_team} ({home_score}) vs ({away_score}) {away_team}
     G'olib: {winner_team}
     
-    1. Sarlavhani jozibali emojilar bilan yoz.
-    2. G'olib jamoaning o'yiniga, kim qahramon bo'lganiga 2-3 jumlada hissiyotli baho ber.
+    1. Sarlavhani jiddiy va jozibali qilib yoz.
+    2. G'olib jamoaning o'yiniga, kim qahramon bo'lganiga 2-3 jumlada baho ber.
     3. Muxlislarga bitta qiziqarli savol qoldir.
     4. Faqat Telegram HTML teglari (<b>, <i>) ishlatilsin. 600 ta belgidan oshmasin.
     5. Begona havola yoki kanal yozma. Sof o'zbek tilida yoz.
@@ -239,8 +236,8 @@ async def generate_match_caption(home_team: str, away_team: str, home_score: int
         )
         clean_text = response.text.strip()
         lines = [l for l in clean_text.split("\n") if "t.me/" not in l and "http" not in l and "@" not in l]
-        full_text = f"{chr(10).join(lines).strip()}\n\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}"
-        return full_text[:950] + f"...\n\n⚽️ <b>Bizning kanal:</b> {CHANNEL_TAG}" if len(full_text) > 1000 else full_text
+        full_text = f"{chr(10).join(lines).strip()}\n\n<b>Bizning kanal:</b> {CHANNEL_TAG}"
+        return full_text[:950] + f"...\n\n<b>Bizning kanal:</b> {CHANNEL_TAG}" if len(full_text) > 1000 else full_text
     except Exception:
         return fallback
 
@@ -358,7 +355,7 @@ async def status_handler(message: types.Message):
         parse_mode="HTML"
     )
 
-# ==================== RENDER VA ISHGA TUSHIRISH ====================
+# ==================== RENDER SERVER ====================
 async def health_check(request):
     return web.Response(text="Football Stats & Match Bot is Running!", status=200)
 
