@@ -14,9 +14,10 @@ from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton
 )
 
-# ==================== SOZLAMALAR ====================
+# ==================== ASOSIY SOZLAMALAR ====================
 BOT_TOKEN = "8736913988:AAEt_b45vOcUE-VwVFY_R1hM0Vv0TvXhtCg"
 MAIN_ADMIN_ID = 6526733680
+DEFAULT_CHANNEL_TAG = "@AniFible"
 PORT = int(os.getenv("PORT", 10000))
 DB_NAME = "anime_data.db"
 
@@ -31,6 +32,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS animes (
             code TEXT PRIMARY KEY,
+            title TEXT,
             poster TEXT,
             description TEXT,
             episodes TEXT
@@ -115,6 +117,7 @@ def get_cancel_keyboard():
 # ==================== FSM BOSQICHLARI ====================
 class AnimeProcess(StatesGroup):
     waiting_for_code = State()
+    waiting_for_title = State()
     waiting_for_poster = State()
     waiting_for_desc = State()
     waiting_for_videos = State()
@@ -168,8 +171,21 @@ async def process_code(message: types.Message, state: FSMContext):
         return
     code = message.text.strip()
     await state.update_data(code=code, episodes=[])
+    await state.set_state(AnimeProcess.waiting_for_title)
+    await message.answer(
+        "Anime nomi va faslini kiriting:\n(Masalan: <b>Yetti o'lim gunohi [1-fasl]</b>)",
+        reply_markup=get_cancel_keyboard(),
+        parse_mode="HTML"
+    )
+
+@dp.message(AnimeProcess.waiting_for_title)
+async def process_title(message: types.Message, state: FSMContext):
+    if not db_is_admin(message.from_user.id):
+        return
+    title = message.text.strip()
+    await state.update_data(title=title)
     await state.set_state(AnimeProcess.waiting_for_poster)
-    await message.answer("Anime uchun <b>poster</b> tashlang (faqat rasm):", reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+    await message.answer("Anime uchun <b>poster</b> tashlang (rasm):", reply_markup=get_cancel_keyboard(), parse_mode="HTML")
 
 @dp.message(AnimeProcess.waiting_for_poster, F.photo)
 async def process_poster(message: types.Message, state: FSMContext):
@@ -178,7 +194,23 @@ async def process_poster(message: types.Message, state: FSMContext):
     poster_id = message.photo[-1].file_id
     await state.update_data(poster=poster_id)
     await state.set_state(AnimeProcess.waiting_for_desc)
-    await message.answer("Endi anime uchun <b>izoh (tavsif)</b> yozing:", reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+    
+    example_desc = (
+        "O'yinchoqlar Tarixi\n"
+        "╭──────────────────────\n"
+        "├‣  Qism: 5Ta Film\n"
+        "├‣  Holati: Tugallangan \n"
+        "├‣  Sifat - 720p, 1080p\n"
+        "├‣  Janrlari: Fantasy, Sarguzasht\n"
+        f"├‣  Kanal: {DEFAULT_CHANNEL_TAG}\n"
+        "╰──────────────────────"
+    )
+    await message.answer(
+        f"Endi anime uchun <b>tavsif (izoh)</b> yuboring.\nMasalan quyidagicha nusxalab tahrirlashingiz mumkin:\n\n"
+        f"<code>{example_desc}</code>",
+        reply_markup=get_cancel_keyboard(),
+        parse_mode="HTML"
+    )
 
 @dp.message(AnimeProcess.waiting_for_desc)
 async def process_desc(message: types.Message, state: FSMContext):
@@ -188,8 +220,9 @@ async def process_desc(message: types.Message, state: FSMContext):
     await state.update_data(desc=desc)
     await state.set_state(AnimeProcess.waiting_for_videos)
     await message.answer(
-        "Ajoyib! Endi animening barcha qismlarini (video holida) ketma-ket tashlang.\n"
-        "Hamma videolarni yuklab boʻlgach, pastdagi <b>«✅ Yakunlandimi?»</b> tugmasini bosing.",
+        "Ajoyib! Endi animening barcha qismlarini (videolarni) ketma-ket tashlang.\n"
+        "Har bir qism tagiga avtomatik nom va qism tartibi yoziladi.\n\n"
+        "Barcha qismlar yuklangach, pastdagi <b>«✅ Yakunlandimi?»</b> tugmasini bosing.",
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML"
     )
@@ -208,7 +241,7 @@ async def process_video_upload(message: types.Message, state: FSMContext):
     ])
     await message.answer(
         f"✅ <b>{len(episodes)}-qism</b> qabul qilindi.\n"
-        "Yana qismlar boʻlsa tashlang, yakunlagan boʻlsangiz tugmani bosing:",
+        "Yana qismlar boʻlsa tashlayvering, bo'lgach tugmani bosing:",
         reply_markup=finish_inline,
         parse_mode="HTML"
     )
@@ -230,15 +263,16 @@ async def finish_upload_flow(call: types.CallbackQuery, state: FSMContext):
         return await call.answer("Hech qanday video yuklanmadi!", show_alert=True)
 
     code = data["code"]
+    title = data["title"]
     poster = data["poster"]
     desc = data["desc"]
 
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
-        INSERT OR REPLACE INTO animes (code, poster, description, episodes)
-        VALUES (?, ?, ?, ?)
-    """, (code, poster, desc, json.dumps(episodes)))
+        INSERT OR REPLACE INTO animes (code, title, poster, description, episodes)
+        VALUES (?, ?, ?, ?, ?)
+    """, (code, title, poster, desc, json.dumps(episodes)))
     conn.commit()
     conn.close()
 
@@ -246,6 +280,7 @@ async def finish_upload_flow(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer(
         f"✅ <b>Anime muvaffaqiyatli saqlandi!</b>\n\n"
         f"🔢 Kodi: <b>{code}</b>\n"
+        f"🏷 Nomi: <b>{title}</b>\n"
         f"🎞 Jami qismlar: <b>{len(episodes)} ta</b>\n"
         f"📝 Izoh:\n{desc}\n\n"
         f"Quyidagi amallardan birini tanlang:",
@@ -255,7 +290,7 @@ async def finish_upload_flow(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.answer("Bosh menyudasiz:", reply_markup=get_admin_keyboard())
 
-# --- Menyu amallari ---
+# --- Kanalga post, izohni tahrirlash va o'chirish ---
 @dp.callback_query(F.data.startswith("send_ch_"))
 async def send_to_channel_cb(call: types.CallbackQuery):
     if not db_is_admin(call.from_user.id):
@@ -263,7 +298,7 @@ async def send_to_channel_cb(call: types.CallbackQuery):
     code = call.data.replace("send_ch_", "")
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT poster, description, episodes FROM animes WHERE code = ?", (code,))
+    cur.execute("SELECT title, poster, description, episodes FROM animes WHERE code = ?", (code,))
     row = cur.fetchone()
     cur.execute("SELECT channel_id FROM channels LIMIT 1")
     ch_row = cur.fetchone()
@@ -271,16 +306,15 @@ async def send_to_channel_cb(call: types.CallbackQuery):
 
     if not row:
         return await call.answer("Anime topilmadi!", show_alert=True)
-    if not ch_row:
-        return await call.answer("Hali hech qanday kanal ulanmagan! Avval «📢 Majburiy kanal» boʻlimida kanal qoʻshing.", show_alert=True)
-
-    poster, desc, eps_json = row
+    
+    target_channel = ch_row[0] if ch_row else DEFAULT_CHANNEL_TAG
+    title, poster, desc, eps_json = row
     total = len(json.loads(eps_json))
-    target_channel = ch_row[0]
     bot_info = await bot.get_me()
 
     post_text = (
         f"🎬 <b>Yangi Anime Joylandi!</b>\n\n"
+        f"🏷 <b>Nomi:</b> {title}\n"
         f"🔢 <b>Kodi:</b> <code>{code}</code>\n"
         f"🎞 <b>Qismlar:</b> {total} ta\n\n"
         f"📝 <b>Tavsif:</b>\n{desc}"
@@ -301,7 +335,7 @@ async def edit_desc_prompt(call: types.CallbackQuery, state: FSMContext):
     code = call.data.replace("edit_desc_", "")
     await state.set_state(AnimeProcess.edit_desc)
     await state.update_data(edit_code=code)
-    await call.message.answer(f"Kod <b>{code}</b> uchun yangi izoh (tavsif) yozing:", reply_markup=get_cancel_keyboard(), parse_mode="HTML")
+    await call.message.answer(f"Kod <b>{code}</b> uchun yangi tavsif (izoh) yozing:", reply_markup=get_cancel_keyboard(), parse_mode="HTML")
 
 @dp.message(AnimeProcess.edit_desc)
 async def process_new_desc(message: types.Message, state: FSMContext):
@@ -348,7 +382,7 @@ async def manage_channels(message: types.Message):
                 InlineKeyboardButton(text="❌ Oʻchirish", callback_data=f"del_ch_{ch_id}")
             ])
     else:
-        text += "Hozircha birorta ham kanal qoʻshilmagan.\n"
+        text += f"Hozircha qo'shimcha kanal yo'q (standart kanal: {DEFAULT_CHANNEL_TAG}).\n"
     buttons.append([InlineKeyboardButton(text="➕ Kanal qoʻshish", callback_data="add_ch_btn")])
     await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
 
@@ -483,7 +517,7 @@ async def stats_handler(message: types.Message):
     )
 
 # ==================== 5. XABAR YUBORISH ====================
-@dp.message(F.text == "✉️ Xabar yuborish")
+@dp.message(F.text == "✉️️ Xabar yuborish")
 async def broadcast_start(message: types.Message, state: FSMContext):
     if not db_is_admin(message.from_user.id):
         return
@@ -529,7 +563,7 @@ async def list_animes(message: types.Message):
         return
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT code, description, episodes FROM animes")
+    cur.execute("SELECT code, title, episodes FROM animes")
     rows = cur.fetchall()
     conn.close()
 
@@ -537,10 +571,9 @@ async def list_animes(message: types.Message):
         return await message.answer("Bazada hali birorta ham anime yoʻq.")
 
     text = "📋 <b>Mavjud Animelar:</b>\n\n"
-    for code, desc, eps_json in rows:
+    for code, title, eps_json in rows:
         total = len(json.loads(eps_json))
-        short_desc = (desc[:30] + '...') if len(desc) > 30 else desc
-        text += f"• Kodi: <code>{code}</code> | {short_desc} ({total} qism)\n"
+        text += f"• Kodi: <code>{code}</code> | <b>{title}</b> ({total} qism)\n"
     await message.answer(text, parse_mode="HTML")
 
 @dp.message(F.text == "🗑 Animeni oʻchirish")
@@ -568,24 +601,26 @@ async def process_single_del(message: types.Message, state: FSMContext):
     else:
         await message.answer("❌ Bunday kodli anime topilmadi.", reply_markup=get_admin_keyboard())
 
-# ==================== ANIME QISMLARINI YUBORISH (TOZA HOLDA) ====================
+# ==================== QISMLARNI YUBORISH (TAGIDA AVTO MATN BILAN) ====================
 async def deliver_anime(chat_id: int, code: str):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT episodes FROM animes WHERE code = ?", (code,))
+    cur.execute("SELECT title, episodes FROM animes WHERE code = ?", (code,))
     row = cur.fetchone()
     conn.close()
 
     if not row:
         return await bot.send_message(chat_id, "❌ Bunday kodli anime topilmadi. Kodni tekshirib qayta yuboring.")
 
-    episodes = json.loads(row[0])
-    await bot.send_message(chat_id, "🎬 Anime qismlari yuklanmoqda...")
+    title, episodes_json = row
+    episodes = json.loads(episodes_json)
+    await bot.send_message(chat_id, f"🎬 <b>{title}</b> barcha qismlari yuklanmoqda...", parse_mode="HTML")
 
-    for video_id in episodes:
+    for idx, video_id in enumerate(episodes, 1):
+        # Aynan siz so'ragan avtomatik format:
+        caption_text = f"{title} {idx}-qism Kanal {DEFAULT_CHANNEL_TAG}"
         try:
-            # Butunlay toza video (yozuvsiz)
-            await bot.send_video(chat_id=chat_id, video=video_id)
+            await bot.send_video(chat_id=chat_id, video=video_id, caption=caption_text)
             await asyncio.sleep(0.4)
         except Exception as e:
             logging.error(f"Xatolik: {e}")
@@ -599,7 +634,7 @@ async def start_handler(message: types.Message):
     args = message.text.split()
     code = args[1].strip() if len(args) > 1 else None
 
-    # Majburiy obunani tekshirish (admin uchun tekshirilmaydi)
+    # Majburiy obuna tekshirish
     if not db_is_admin(user_id):
         unsub = await check_user_subscriptions(user_id)
         if unsub:
@@ -649,7 +684,6 @@ async def search_by_code(message: types.Message):
     user_id = message.from_user.id
     db_add_user(user_id)
 
-    # Obunani tekshirish
     if not db_is_admin(user_id):
         unsub = await check_user_subscriptions(user_id)
         if unsub:
