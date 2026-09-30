@@ -15,8 +15,8 @@ from aiogram.types import (
 )
 
 # ==================== SOZLAMALAR ====================
-BOT_TOKEN = "8736913988:AAFCpRN6ytjo6-19gzUfEV3pwYDsPZIxcqo"
-MAIN_ADMIN_ID = 6526733680
+BOT_TOKEN = "8736913988:AAEt_b45vOcUE-VwVFY_R1hM0Vv0TvXhtCg"
+MAIN_ADMIN_ID = 8613913673
 DEFAULT_CHANNEL = "@Anifible"
 PORT = int(os.getenv("PORT", 10000))
 DB_NAME = "anime_data.db"
@@ -384,7 +384,7 @@ async def process_admin_add(message: types.Message, state: FSMContext):
     new_id = int(text)
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?,)", (new_id,))
+    cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (new_id,))
     conn.commit()
     conn.close()
     await state.clear()
@@ -551,33 +551,38 @@ async def start_handler(message: types.Message):
     args = message.text.split()
     code = args[1].strip() if len(args) > 1 else None
 
-    # Majburiy obunani tekshirish
-    unsub = await check_user_subscriptions(user_id)
-    if unsub:
-        await message.answer(
-            f"Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
-            "Botdan to'liq foydalanish uchun quyidagi kanallarga a'zo bo'ling:",
-            reply_markup=get_sub_keyboard(unsub, code),
-            parse_mode="HTML"
-        )
-        return
+    # Majburiy obunani tekshirish (admin uchun tekshirilmaydi)
+    if not db_is_admin(user_id):
+        unsub = await check_user_subscriptions(user_id)
+        if unsub:
+            await message.answer(
+                f"Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
+                "Botdan to'liq foydalanish uchun quyidagi kanallarga a'zo bo'ling:",
+                reply_markup=get_sub_keyboard(unsub, code),
+                parse_mode="HTML"
+            )
+            return
 
     if code:
         await deliver_anime(user_id, code)
         return
 
+    # Siz aytgan formatdagi linkli salomlashish matni
+    welcome_text = (
+        f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz. "
+        f"✍🏻 Kino kodini yuboring..."
+    )
+
     if db_is_admin(user_id):
         await message.answer(
-            f"Salom Admin, <b>{message.from_user.first_name}</b>!\n\nBoshqaruv menyusi:",
+            f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz, "
+            f"<a href=\"tg://user?id={user_id}\">{message.from_user.first_name}</a>!\n\n"
+            f"🛠 <b>Siz uchun Boshqaruv Menyusi faol:</b>",
             reply_markup=get_admin_keyboard(),
-            parse_mode="HTML"
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
     else:
-        # Siz aytgan format: Bot nomi link ko'rinishida bo'ladi
-        welcome_text = (
-            f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz."
-            f"✍🏻 Kino kodini yuboring..."
-        )
         await message.answer(welcome_text, parse_mode="HTML", disable_web_page_preview=True)
 
 @dp.callback_query(F.data.startswith("check_sub"))
@@ -595,7 +600,7 @@ async def check_sub_cb(call: types.CallbackQuery):
             await deliver_anime(user_id, code)
         else:
             welcome_text = (
-                f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz."
+                f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz. "
                 f"✍🏻 Kino kodini yuboring..."
             )
             await call.message.answer(welcome_text, parse_mode="HTML", disable_web_page_preview=True)
@@ -606,13 +611,14 @@ async def search_by_code(message: types.Message):
     db_add_user(user_id)
 
     # Obunani tekshirish
-    unsub = await check_user_subscriptions(user_id)
-    if unsub:
-        return await message.answer(
-            "Botdan foydalanish uchun kanallarga a'zo bo'ling:",
-            reply_markup=get_sub_keyboard(unsub, message.text.strip()),
-            parse_mode="HTML"
-        )
+    if not db_is_admin(user_id):
+        unsub = await check_user_subscriptions(user_id)
+        if unsub:
+            return await message.answer(
+                "Botdan foydalanish uchun kanallarga a'zo bo'ling:",
+                reply_markup=get_sub_keyboard(unsub, message.text.strip()),
+                parse_mode="HTML"
+            )
 
     code = message.text.strip()
     if code.isdigit():
