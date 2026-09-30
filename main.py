@@ -513,7 +513,7 @@ async def deliver_anime(chat_id: int, code: str):
     conn.close()
 
     if not row:
-        return await bot.send_message(chat_id, "❌ Bunday kodli kino/anime topilmadi. Kodni tekshirib qayta yuboring.")
+        return await bot.send_message(chat_id, "❌ Bunday kodli anime topilmadi. Kodni tekshirib qayta yuboring.")
 
     title, episodes_json = row
     episodes = json.loads(episodes_json)
@@ -522,7 +522,7 @@ async def deliver_anime(chat_id: int, code: str):
 
     for video_id in episodes:
         try:
-            # Butunlay toza video (hech qanday caption/matnsiz)
+            # Matnsiz toza video yuborish
             await bot.send_video(chat_id=chat_id, video=video_id)
             await asyncio.sleep(0.4)
         except Exception as e:
@@ -533,7 +533,6 @@ async def deliver_anime(chat_id: int, code: str):
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
     db_add_user(user_id)
-    bot_info = await bot.get_me()
 
     args = message.text.split()
     code = args[1].strip() if len(args) > 1 else None
@@ -543,10 +542,14 @@ async def start_handler(message: types.Message):
         await deliver_anime(user_id, code)
         return
 
+    # Foydalanuvchi ismini profil havolasi ko'rinishida olish
+    user_name = message.from_user.first_name
+    user_mention = f'<a href="tg://user?id={user_id}">{user_name}</a>'
+
     # Admin kirganda
     if db_is_admin(user_id):
         admin_text = (
-            f"👋 Assalomu alaykum, <a href=\"tg://user?id={user_id}\">{message.from_user.first_name}</a>!\n\n"
+            f"👋 Assalomu alaykum, {user_mention}!\n\n"
             f"🛠 <b>Siz uchun Boshqaruv Menyusi faol:</b>"
         )
         await message.answer(
@@ -558,8 +561,8 @@ async def start_handler(message: types.Message):
     # Oddiy foydalanuvchi kirganda
     else:
         welcome_text = (
-            f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz. "
-            f"✍🏻 Kino kodini yuboring..."
+            f"👋 Assalomu alaykum, {user_mention}! Anime botimizga xush kelibsiz.\n"
+            f"✍🏻 Anime kodini yuboring..."
         )
         await message.answer(
             welcome_text,
@@ -576,11 +579,11 @@ async def search_by_code(message: types.Message):
     if code.isdigit():
         await deliver_anime(user_id, code)
     else:
-        await message.answer("✍🏻 Iltimos, kino kodini (faqat raqam) yuboring:")
+        await message.answer("✍🏻 Iltimos, anime kodini (faqat raqam) yuboring:")
 
 # ==================== RENDER SERVER (24/7 UPTIME) ====================
 async def health_check(request):
-    return web.Response(text="Tyclom Anime Bot is Running 24/7!", status=200)
+    return web.Response(text="Anime Bot is Running 24/7!", status=200)
 
 async def start_web_server():
     app = web.Application()
@@ -595,7 +598,7 @@ async def main():
     init_db()
     await bot.delete_webhook(drop_pending_updates=True)
     await start_web_server()
-    logging.info("Tyclom Anime/Kino boti to'liq ishga tushdi...")
+    logging.info("Anime boti to'liq ishga tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
