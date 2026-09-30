@@ -14,7 +14,7 @@ from aiogram.types import (
 
 # ==================== SOZLAMALAR ====================
 BOT_TOKEN = "8736913988:AAFCpRN6ytjo6-19gzUfEV3pwYDsPZIxcqo"
-ADMIN_ID = 8613913673
+ADMIN_ID = 6526733680
 CHANNEL_TAG = "@Anifible"
 PORT = int(os.getenv("PORT", 10000))
 
