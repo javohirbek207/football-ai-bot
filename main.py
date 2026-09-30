@@ -79,6 +79,17 @@ def db_get_channels():
 async def check_user_subscriptions(user_id: int):
     channels = db_get_channels()
     unsubscribed = []
+    
+    # Agar maxsus kanal qo'shilmagan bo'lsa, standart kanalni tekshiradi
+    if not channels:
+        try:
+            member = await bot.get_chat_member(chat_id=DEFAULT_CHANNEL_TAG, user_id=user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                unsubscribed.append(("Kanalimiz", f"https://t.me/{DEFAULT_CHANNEL_TAG.replace('@', '')}"))
+        except Exception:
+            pass
+        return unsubscribed
+
     for ch_id, title, url in channels:
         try:
             member = await bot.get_chat_member(chat_id=ch_id, user_id=user_id)
@@ -88,12 +99,12 @@ async def check_user_subscriptions(user_id: int):
             continue
     return unsubscribed
 
-def get_sub_keyboard(unsubscribed_channels, code_to_resume=None):
+def get_sub_keyboard(unsubscribed_channels, ep_callback_data=None):
     keyboard = []
     for title, url in unsubscribed_channels:
         keyboard.append([InlineKeyboardButton(text=f"➕ {title}", url=url)])
-    cb_data = f"check_sub_{code_to_resume}" if code_to_resume else "check_sub"
-    keyboard.append([InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data=cb_data)])
+    cb_data = f"chk_{ep_callback_data}" if ep_callback_data else "chk_sub"
+    keyboard.append([InlineKeyboardButton(text="✅ Aʼzo boʻldim / Tekshirish", callback_data=cb_data)])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 # ==================== TUGMALAR ====================
@@ -206,7 +217,7 @@ async def process_poster(message: types.Message, state: FSMContext):
         "╰──────────────────────"
     )
     await message.answer(
-        f"Endi anime uchun <b>tavsif (izoh)</b> yuboring.\nMasalan quyidagicha nusxalab tahrirlashingiz mumkin:\n\n"
+        f"Endi anime uchun <b>tavsif (izoh)</b> yuboring:\n\n"
         f"<code>{example_desc}</code>",
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML"
@@ -220,8 +231,7 @@ async def process_desc(message: types.Message, state: FSMContext):
     await state.update_data(desc=desc)
     await state.set_state(AnimeProcess.waiting_for_videos)
     await message.answer(
-        "Ajoyib! Endi animening barcha qismlarini (videolarni) ketma-ket tashlang.\n"
-        "Har bir qism tagiga avtomatik nom va qism tartibi yoziladi.\n\n"
+        "Ajoyib! Endi animening barcha qismlarini (videolarni) ketma-ket tashlang.\n\n"
         "Barcha qismlar yuklangach, pastdagi <b>«✅ Yakunlandimi?»</b> tugmasini bosing.",
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML"
@@ -290,7 +300,7 @@ async def finish_upload_flow(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.answer("Bosh menyudasiz:", reply_markup=get_admin_keyboard())
 
-# --- Kanalga post (faqat izoh yuboriladi), izohni tahrirlash va o'chirish ---
+# --- Kanalga post (faqat izoh), tahrirlash va o'chirish ---
 @dp.callback_query(F.data.startswith("send_ch_"))
 async def send_to_channel_cb(call: types.CallbackQuery):
     if not db_is_admin(call.from_user.id):
@@ -300,28 +310,22 @@ async def send_to_channel_cb(call: types.CallbackQuery):
     cur = conn.cursor()
     cur.execute("SELECT poster, description FROM animes WHERE code = ?", (code,))
     row = cur.fetchone()
-    cur.execute("SELECT channel_id FROM channels LIMIT 1")
-    ch_row = cur.fetchone()
     conn.close()
 
     if not row:
         return await call.answer("Anime topilmadi!", show_alert=True)
     
-    target_channel = ch_row[0] if ch_row else DEFAULT_CHANNEL_TAG
     poster, desc = row
     bot_info = await bot.get_me()
-
-    # Hech qanday ortiqcha shablon so'zlarsiz, faqat siz yozgan izohning o'zi:
-    post_text = desc
 
     btn = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Tomosha qilish 🍿", url=f"https://t.me/{bot_info.username}?start={code}")]
     ])
     try:
-        await bot.send_photo(chat_id=target_channel, photo=poster, caption=post_text, reply_markup=btn, parse_mode="HTML")
+        await bot.send_photo(chat_id=DEFAULT_CHANNEL_TAG, photo=poster, caption=desc, reply_markup=btn, parse_mode="HTML")
         await call.answer("✅ Kanalga post muvaffaqiyatli yuborildi!", show_alert=True)
     except Exception as e:
-        await call.answer(f"❌ Xatolik: {e}\n(Bot kanalda admin ekanligini tekshiring)", show_alert=True)
+        await call.answer(f"❌ Xatolik: {e}\n(Bot {DEFAULT_CHANNEL_TAG} kanalida admin ekanligini tekshiring)", show_alert=True)
 
 @dp.callback_query(F.data.startswith("edit_desc_"))
 async def edit_desc_prompt(call: types.CallbackQuery, state: FSMContext):
@@ -369,15 +373,14 @@ async def manage_channels(message: types.Message):
         return
     channels = db_get_channels()
     buttons = []
-    text = "📢 <b>Majburiy obuna va anons kanallari:</b>\n\n"
+    text = f"📢 <b>Asosiy kanal:</b> {DEFAULT_CHANNEL_TAG}\n\n"
     if channels:
+        text += "Qoʻshimcha kanallar:\n"
         for ch_id, title, url in channels:
             buttons.append([
                 InlineKeyboardButton(text=f"{title}", url=url),
                 InlineKeyboardButton(text="❌ Oʻchirish", callback_data=f"del_ch_{ch_id}")
             ])
-    else:
-        text += f"Hozircha qo'shimcha kanal yo'q (standart kanal: {DEFAULT_CHANNEL_TAG}).\n"
     buttons.append([InlineKeyboardButton(text="➕ Kanal qoʻshish", callback_data="add_ch_btn")])
     await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
 
@@ -596,8 +599,66 @@ async def process_single_del(message: types.Message, state: FSMContext):
     else:
         await message.answer("❌ Bunday kodli anime topilmadi.", reply_markup=get_admin_keyboard())
 
-# ==================== QISMLARNI YUBORISH (TAGIDA AVTO MATN BILAN) ====================
+# ==================== POSTER VA QISMLAR TUGMASINI CHIQARISH ====================
 async def deliver_anime(chat_id: int, code: str):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT title, poster, description, episodes FROM animes WHERE code = ?", (code,))
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return await bot.send_message(chat_id, "❌ Bunday kodli anime topilmadi. Kodni tekshirib qayta yuboring.")
+
+    title, poster, desc, episodes_json = row
+    episodes = json.loads(episodes_json)
+    total_eps = len(episodes)
+
+    # 4 tadan qator qilingan qism tugmalari
+    keyboard = []
+    row_btns = []
+    for idx in range(1, total_eps + 1):
+        row_btns.append(InlineKeyboardButton(text=f"{idx}-qism", callback_data=f"getep_{code}_{idx}"))
+        if len(row_btns) == 4:
+            keyboard.append(row_btns)
+            row_btns = []
+    if row_btns:
+        keyboard.append(row_btns)
+
+    ep_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    caption_text = f"{desc}\n\n👇 <b>Kerakli qismni tanlang:</b>"
+
+    try:
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=poster,
+            caption=caption_text,
+            reply_markup=ep_markup,
+            parse_mode="HTML"
+        )
+    except Exception:
+        await bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=ep_markup, parse_mode="HTML")
+
+# --- QISM BOSILGANDA OBUNANI TEKSHIRISH VA YUBORISH ---
+@dp.callback_query(F.data.startswith("getep_"))
+async def send_single_episode(call: types.CallbackQuery):
+    user_id = call.from_user.id
+    raw_data = call.data
+
+    # Faqat oddiy foydalanuvchilardan obuna so'raladi
+    if not db_is_admin(user_id):
+        unsub = await check_user_subscriptions(user_id)
+        if unsub:
+            return await call.message.answer(
+                f"Assalomu alaykum, <b>{call.from_user.first_name}</b>!\n\n"
+                "Qismlarni tomosha qilish uchun avval kanalimizga aʼzo boʻling:",
+                reply_markup=get_sub_keyboard(unsub, raw_data),
+                parse_mode="HTML"
+            )
+
+    _, code, ep_num_str = raw_data.split("_")
+    ep_num = int(ep_num_str)
+
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("SELECT title, episodes FROM animes WHERE code = ?", (code,))
@@ -605,21 +666,49 @@ async def deliver_anime(chat_id: int, code: str):
     conn.close()
 
     if not row:
-        return await bot.send_message(chat_id, "❌ Bunday kodli anime topilmadi. Kodni tekshirib qayta yuboring.")
+        return await call.answer("Anime topilmadi!", show_alert=True)
 
     title, episodes_json = row
     episodes = json.loads(episodes_json)
-    await bot.send_message(chat_id, f"🎬 <b>{title}</b> qismlari yuklanmoqda...", parse_mode="HTML")
 
-    for idx, video_id in enumerate(episodes, 1):
-        caption_text = f"{title} {idx}-qism Kanal {DEFAULT_CHANNEL_TAG}"
-        try:
-            await bot.send_video(chat_id=chat_id, video=video_id, caption=caption_text)
-            await asyncio.sleep(0.4)
-        except Exception as e:
-            logging.error(f"Xatolik: {e}")
+    if ep_num <= len(episodes):
+        video_id = episodes[ep_num - 1]
+        caption_text = f"{title} {ep_num}-qism Kanal {DEFAULT_CHANNEL_TAG}"
+        await call.answer(f"{ep_num}-qism yuborilmoqda...")
+        await bot.send_video(chat_id=user_id, video=video_id, caption=caption_text)
+    else:
+        await call.answer("Bu qism topilmadi!", show_alert=True)
 
-# ==================== START VA FOYDALANUVCHILAR ====================
+# --- Obunani tekshirish tugmasi bosilganda ---
+@dp.callback_query(F.data.startswith("chk_"))
+async def check_sub_after_episode_prompt(call: types.CallbackQuery):
+    user_id = call.from_user.id
+    target_data = call.data.replace("chk_", "")
+
+    unsub = await check_user_subscriptions(user_id)
+    if unsub:
+        return await call.answer("Siz hali barcha kanallarga aʼzo boʻlmadingiz!", show_alert=True)
+
+    await call.message.delete()
+    if target_data.startswith("getep_"):
+        _, code, ep_num_str = target_data.split("_")
+        ep_num = int(ep_num_str)
+
+        conn = sqlite3.connect(DB_NAME)
+        cur = conn.cursor()
+        cur.execute("SELECT title, episodes FROM animes WHERE code = ?", (code,))
+        row = cur.fetchone()
+        conn.close()
+
+        if row:
+            title, episodes_json = row
+            episodes = json.loads(episodes_json)
+            if ep_num <= len(episodes):
+                video_id = episodes[ep_num - 1]
+                caption_text = f"{title} {ep_num}-qism Kanal {DEFAULT_CHANNEL_TAG}"
+                await bot.send_video(chat_id=user_id, video=video_id, caption=caption_text)
+
+# ==================== START VA QIDIRUV (OBUNA SO'RALMAYDI) ====================
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
@@ -628,18 +717,7 @@ async def start_handler(message: types.Message):
     args = message.text.split()
     code = args[1].strip() if len(args) > 1 else None
 
-    # Majburiy obunani tekshirish
-    if not db_is_admin(user_id):
-        unsub = await check_user_subscriptions(user_id)
-        if unsub:
-            await message.answer(
-                f"Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
-                "Botdan toʻliq foydalanish uchun quyidagi kanallarga aʼzo boʻling:",
-                reply_markup=get_sub_keyboard(unsub, code),
-                parse_mode="HTML"
-            )
-            return
-
+    # Deep-link orqali kirsa to'g'ridan-to'g'ri poster va tugmalar chiqadi
     if code:
         await deliver_anime(user_id, code)
         return
@@ -653,39 +731,10 @@ async def start_handler(message: types.Message):
     )
     await message.answer(welcome_text, parse_mode="HTML", disable_web_page_preview=True)
 
-@dp.callback_query(F.data.startswith("check_sub"))
-async def check_sub_cb(call: types.CallbackQuery):
-    user_id = call.from_user.id
-    unsub = await check_user_subscriptions(user_id)
-    code = call.data.replace("check_sub_", "") if "check_sub_" in call.data else None
-
-    if unsub:
-        await call.answer("Siz hali barcha kanallarga aʼzo boʻlmadingiz!", show_alert=True)
-    else:
-        await call.message.delete()
-        if code and code != "check_sub":
-            await deliver_anime(user_id, code)
-        else:
-            user_mention = f'<a href="tg://user?id={user_id}">{call.from_user.first_name}</a>'
-            await call.message.answer(
-                f"👋 Assalomu alaykum, {user_mention}! Anime botimizga xush kelibsiz.\n✍🏻 Anime kodini yuboring...",
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
-
 @dp.message(F.text)
 async def search_by_code(message: types.Message):
     user_id = message.from_user.id
     db_add_user(user_id)
-
-    if not db_is_admin(user_id):
-        unsub = await check_user_subscriptions(user_id)
-        if unsub:
-            return await message.answer(
-                "Botdan foydalanish uchun kanallarga aʼzo boʻling:",
-                reply_markup=get_sub_keyboard(unsub, message.text.strip()),
-                parse_mode="HTML"
-            )
 
     code = message.text.strip()
     if code.isdigit():
