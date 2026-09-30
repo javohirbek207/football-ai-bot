@@ -16,7 +16,7 @@ from aiogram.types import (
 
 # ==================== SOZLAMALAR ====================
 BOT_TOKEN = "8736913988:AAFCpRN6ytjo6-19gzUfEV3pwYDsPZIxcqo"
-MAIN_ADMIN_ID = 6526733680
+MAIN_ADMIN_ID = 8613913673
 DEFAULT_CHANNEL = "@Anifible"
 PORT = int(os.getenv("PORT", 10000))
 DB_NAME = "anime_data.db"
@@ -295,7 +295,7 @@ async def channels_manage_menu(message: types.Message):
                 InlineKeyboardButton(text="❌ O'chirish", callback_data=f"del_channel_{ch_id}")
             ])
     else:
-        text += "Hozircha hech qanday kanal qo'shilmagan.\n"
+        text += "Hozircha hech qanday majburiy kanal yo'q.\n"
     buttons.append([InlineKeyboardButton(text="➕ Yangi Kanal Qo'shish", callback_data="add_new_channel")])
     await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
 
@@ -305,7 +305,7 @@ async def add_channel_prompt(call: types.CallbackQuery, state: FSMContext):
         return
     await state.set_state(ChannelAdd.waiting_for_data)
     await call.message.answer(
-        "Kanal ma'lumotlarini quyidagi tartibda bitta xabarda yuboring:\n\n"
+        "Kanal ma'lumotlarini quyidagi formatda yuboring:\n\n"
         "<code>@KanalUsername|Kanal Nomi|https://t.me/KanalUsername</code>\n\n"
         "<i>Eslatma: Bot ushbu kanalda ADMIN bo'lishi shart!</i>",
         reply_markup=get_cancel_keyboard(),
@@ -384,7 +384,7 @@ async def process_admin_add(message: types.Message, state: FSMContext):
     new_id = int(text)
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (new_id,))
+    cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?,)", (new_id,))
     conn.commit()
     conn.close()
     await state.clear()
@@ -526,16 +526,16 @@ async def deliver_anime(chat_id: int, code: str):
     conn.close()
 
     if not row:
-        return await bot.send_message(chat_id, "❌ Bunday kodli anime topilmadi. Kodni tekshirib qayta yuboring.")
+        return await bot.send_message(chat_id, "❌ Bunday kodli kino/anime topilmadi. Kodni tekshirib qayta yuboring.")
 
     title, episodes_json = row
     episodes = json.loads(episodes_json)
 
-    await bot.send_message(chat_id, f"🎬 <b>{title}</b> barcha qismlari yuklanmoqda...", parse_mode="HTML")
+    await bot.send_message(chat_id, f"🎬 <b>{title}</b> qismlari yuklanmoqda...", parse_mode="HTML")
 
     for video_id in episodes:
         try:
-            # Toza holda, yozuvsiz video
+            # Matnsiz toza video yuborish
             await bot.send_video(chat_id=chat_id, video=video_id)
             await asyncio.sleep(0.4)
         except Exception as e:
@@ -546,6 +546,7 @@ async def deliver_anime(chat_id: int, code: str):
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
     db_add_user(user_id)
+    bot_info = await bot.get_me()
 
     args = message.text.split()
     code = args[1].strip() if len(args) > 1 else None
@@ -567,40 +568,44 @@ async def start_handler(message: types.Message):
 
     if db_is_admin(user_id):
         await message.answer(
-            f"Salom Admin, <b>{message.from_user.first_name}</b>!\n\nBoshqaruv menyusi faollashtirildi:",
+            f"Salom Admin, <b>{message.from_user.first_name}</b>!\n\nBoshqaruv menyusi:",
             reply_markup=get_admin_keyboard(),
             parse_mode="HTML"
         )
     else:
-        await message.answer(
-            f"Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
-            f"Bu <b>{DEFAULT_CHANNEL}</b> rasmiy anime boti.\n"
-            "Tomosha qilmoqchi bo'lgan anime kodini yuboring (masalan: <code>101</code>):",
-            parse_mode="HTML"
+        # Siz aytgan format: Bot nomi link ko'rinishida bo'ladi
+        welcome_text = (
+            f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz."
+            f"✍🏻 Kino kodini yuboring..."
         )
+        await message.answer(welcome_text, parse_mode="HTML", disable_web_page_preview=True)
 
 @dp.callback_query(F.data.startswith("check_sub"))
 async def check_sub_cb(call: types.CallbackQuery):
     user_id = call.from_user.id
     unsub = await check_user_subscriptions(user_id)
     code = call.data.replace("check_sub_", "") if "check_sub_" in call.data else None
+    bot_info = await bot.get_me()
 
     if unsub:
         await call.answer("Siz hali barcha kanallarga a'zo bo'lmadingiz!", show_alert=True)
     else:
         await call.message.delete()
-        await call.message.answer("✅ Obuna tasdiqlandi! Xush kelibsiz.")
         if code and code != "check_sub":
             await deliver_anime(user_id, code)
         else:
-            await call.message.answer("Marhamat, tomosha qilmoqchi bo'lgan anime kodini yuboring:")
+            welcome_text = (
+                f"👋 Assalomu alaykum <a href=\"https://t.me/{bot_info.username}\">𝑻𝒚𝒄𝒍𝒐𝒎</a> botimizga xush kelibsiz."
+                f"✍🏻 Kino kodini yuboring..."
+            )
+            await call.message.answer(welcome_text, parse_mode="HTML", disable_web_page_preview=True)
 
 @dp.message(F.text)
 async def search_by_code(message: types.Message):
     user_id = message.from_user.id
     db_add_user(user_id)
 
-    # Obuna tekshirish
+    # Obunani tekshirish
     unsub = await check_user_subscriptions(user_id)
     if unsub:
         return await message.answer(
@@ -613,11 +618,11 @@ async def search_by_code(message: types.Message):
     if code.isdigit():
         await deliver_anime(user_id, code)
     else:
-        await message.answer("Iltimos, faqat anime kodini (masalan: <code>101</code>) yuboring.", parse_mode="HTML")
+        await message.answer("✍🏻 Iltimos, kino kodini (faqat raqam) yuboring:")
 
-# ==================== RENDER WEB SERVER ====================
+# ==================== RENDER SERVER ====================
 async def health_check(request):
-    return web.Response(text="Anime Bot with Full Admin Suite is Running 24/7!", status=200)
+    return web.Response(text="Tyclom Bot is Running 24/7!", status=200)
 
 async def start_web_server():
     app = web.Application()
@@ -627,12 +632,12 @@ async def start_web_server():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-# ==================== ASOSIY ISHGA TUSHIRISH ====================
+# ==================== ISHGA TUSHIRISH ====================
 async def main():
     init_db()
     await bot.delete_webhook(drop_pending_updates=True)
     await start_web_server()
-    logging.info("Anime bot to'liq admin imkoniyatlari bilan ishga tushdi...")
+    logging.info("Tyclom Anime/Kino boti ishga tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
